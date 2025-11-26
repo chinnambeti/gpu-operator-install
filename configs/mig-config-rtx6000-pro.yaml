@@ -1,0 +1,100 @@
+# NVIDIA RTX 6000 Ada MIG Configuration
+# This ConfigMap defines MIG (Multi-Instance GPU) profiles for RTX 6000 Pro
+# 
+# RTX 6000 Ada has 48GB VRAM and supports MIG partitioning
+# Note: RTX 6000 Pro is a professional GPU that may have limited MIG support
+# compared to datacenter GPUs like A100/H100. This configuration provides
+# common profiles that work with professional workstation GPUs.
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mig-parted-config
+  namespace: gpu-operator
+data:
+  config.yaml: |
+    version: v1
+    mig-configs:
+      # All GPUs disabled - no MIG partitioning
+      all-disabled:
+        - devices: all
+          mig-enabled: false
+
+      # Balanced configuration - optimal for mixed workloads
+      # Creates multiple GPU instances for parallel processing
+      all-balanced:
+        - devices: all
+          mig-enabled: true
+          mig-devices:
+            # 3g.24gb profile - 3 compute slices with 24GB memory each
+            "3g.24gb": 1
+
+      # Memory-optimized configuration
+      # Maximizes memory per GPU instance for large models
+      all-1g:
+        - devices: all
+          mig-enabled: true
+          mig-devices:
+            # 1g.48gb profile - full GPU with MIG enabled
+            "1g.6gb": 7
+
+      # Compute-intensive configuration  
+      # More GPU instances for parallel inference
+      all-2g:
+        - devices: all
+          mig-enabled: true
+          mig-devices:
+            "2g.12gb": 3
+
+      # Mixed workload configuration
+      # Combination of different profiles for diverse workloads
+      mixed-profile:
+        - devices: [0]
+          mig-enabled: true
+          mig-devices:
+            "3g.24gb": 1
+        - devices: [1]
+          mig-enabled: true
+          mig-devices:
+            "1g.6gb": 7
+
+      # AI/ML Training configuration
+      # Optimized for training workloads requiring more memory
+      training-optimized:
+        - devices: all
+          mig-enabled: true
+          mig-devices:
+            "4g.24gb": 1
+            "1g.6gb": 2
+
+      # Inference configuration
+      # Multiple smaller instances for inference serving
+      inference-optimized:
+        - devices: all
+          mig-enabled: true
+          mig-devices:
+            "1g.6gb": 7
+
+---
+# MIG Manager DaemonSet Configuration
+# Applies MIG configuration based on node labels
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mig-manager-config
+  namespace: gpu-operator
+data:
+  default-mig-config: "all-disabled"
+  
+---
+# Example: How to apply MIG configuration to a node
+# kubectl label node <node-name> nvidia.com/mig.config=all-balanced --overwrite
+#
+# Supported MIG config labels for RTX 6000 Pro:
+# - nvidia.com/mig.config=all-disabled
+# - nvidia.com/mig.config=all-balanced
+# - nvidia.com/mig.config=all-1g
+# - nvidia.com/mig.config=all-2g
+# - nvidia.com/mig.config=mixed-profile
+# - nvidia.com/mig.config=training-optimized
+# - nvidia.com/mig.config=inference-optimized

@@ -1,0 +1,273 @@
+# NVIDIA Blueprint Configuration for RTX 6000 Pro
+# This blueprint provides a complete NVIDIA AI stack configuration
+#
+# Components included:
+# - NVIDIA GPU Operator with MIG support
+# - NVIDIA AI Enterprise stack
+# - GPU monitoring and observability
+# - Sample workloads for validation
+#
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nvidia-blueprint
+  labels:
+    app.kubernetes.io/name: nvidia-blueprint
+    app.kubernetes.io/component: ai-stack
+
+---
+# Blueprint Configuration ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-blueprint-config
+  namespace: nvidia-blueprint
+data:
+  # GPU Configuration
+  gpu-config.yaml: |
+    gpuModel: "RTX 6000 Pro"
+    architecture: "Ada Lovelace"
+    memoryGB: 48
+    migEnabled: true
+    cudaVersion: "12.4"
+    driverVersion: "550.x"
+    
+  # Stack Components
+  stack-components.yaml: |
+    components:
+      - name: gpu-operator
+        enabled: true
+        version: "v24.6.1"
+      - name: nvidia-container-toolkit
+        enabled: true
+        version: "1.16.1"
+      - name: dcgm-exporter
+        enabled: true
+        version: "3.3.6"
+      - name: device-plugin
+        enabled: true
+        version: "0.16.1"
+      - name: mig-manager
+        enabled: true
+        version: "0.8.0"
+      - name: gpu-feature-discovery
+        enabled: true
+        version: "0.16.1"
+
+  # Workload Profiles
+  workload-profiles.yaml: |
+    profiles:
+      - name: ai-training
+        description: "Optimized for AI/ML training workloads"
+        migConfig: "training-optimized"
+        resources:
+          nvidia.com/gpu: 1
+          memory: "32Gi"
+          cpu: "8"
+      - name: inference
+        description: "Optimized for inference serving"
+        migConfig: "inference-optimized"
+        resources:
+          nvidia.com/gpu: 1
+          memory: "16Gi"
+          cpu: "4"
+      - name: development
+        description: "Development and testing"
+        migConfig: "all-balanced"
+        resources:
+          nvidia.com/gpu: 1
+          memory: "8Gi"
+          cpu: "2"
+
+---
+# GPU Monitoring ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nvidia-gpu-metrics
+  namespace: nvidia-blueprint
+  labels:
+    app: nvidia-dcgm-exporter
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-dcgm-exporter
+  namespaceSelector:
+    matchNames:
+      - gpu-operator
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+      honorLabels: true
+
+---
+# PrometheusRule for GPU Alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nvidia-gpu-alerts
+  namespace: nvidia-blueprint
+  labels:
+    app: nvidia-blueprint
+spec:
+  groups:
+    - name: nvidia-gpu
+      rules:
+        - alert: GPUHighTemperature
+          expr: DCGM_FI_DEV_GPU_TEMP > 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GPU temperature is high"
+            description: "GPU {{ $labels.gpu }} temperature is above 80°C"
+
+        - alert: GPUMemoryHighUsage
+          expr: (DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_FREE) > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GPU memory usage is high"
+            description: "GPU {{ $labels.gpu }} memory usage is above 90%"
+
+        - alert: GPUHighUtilization
+          expr: DCGM_FI_DEV_GPU_UTIL > 95
+          for: 30m
+          labels:
+            severity: info
+          annotations:
+            summary: "GPU utilization is consistently high"
+            description: "GPU {{ $labels.gpu }} has been above 95% utilization for 30 minutes"
+
+        - alert: MIGPartitionUnhealthy
+          expr: DCGM_FI_PROF_GR_ENGINE_ACTIVE == 0 and DCGM_FI_DEV_MIG_MODE == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "MIG partition may be unhealthy"
+            description: "MIG partition on GPU {{ $labels.gpu }} shows no activity"
+
+---
+# Grafana Dashboard ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-gpu-dashboard
+  namespace: nvidia-blueprint
+  labels:
+    grafana_dashboard: "1"
+data:
+  nvidia-gpu-dashboard.json: |
+    {
+      "title": "NVIDIA GPU Metrics - RTX 6000 Pro",
+      "description": "Dashboard for monitoring NVIDIA RTX 6000 Pro GPUs with MIG support",
+      "panels": [
+        {
+          "title": "GPU Temperature",
+          "type": "gauge",
+          "targets": [
+            {
+              "expr": "DCGM_FI_DEV_GPU_TEMP",
+              "legendFormat": "GPU {{gpu}}"
+            }
+          ]
+        },
+        {
+          "title": "GPU Utilization",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "DCGM_FI_DEV_GPU_UTIL",
+              "legendFormat": "GPU {{gpu}}"
+            }
+          ]
+        },
+        {
+          "title": "GPU Memory Usage",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "DCGM_FI_DEV_FB_USED",
+              "legendFormat": "Used - GPU {{gpu}}"
+            },
+            {
+              "expr": "DCGM_FI_DEV_FB_FREE",
+              "legendFormat": "Free - GPU {{gpu}}"
+            }
+          ]
+        },
+        {
+          "title": "MIG Instance Status",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "DCGM_FI_DEV_MIG_MODE",
+              "legendFormat": "MIG Mode - GPU {{gpu}}"
+            }
+          ]
+        },
+        {
+          "title": "Power Usage",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "DCGM_FI_DEV_POWER_USAGE",
+              "legendFormat": "Power - GPU {{gpu}}"
+            }
+          ]
+        }
+      ]
+    }
+
+---
+# Device Plugin Configuration for RTX 6000 Pro
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: device-plugin-config
+  namespace: gpu-operator
+data:
+  any: |
+    version: v1
+    sharing:
+      timeSlicing:
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 1
+    flags:
+      migStrategy: mixed
+      failOnInitError: true
+      nvidiaDriverRoot: /
+      
+  time-sliced-2: |
+    version: v1
+    sharing:
+      timeSlicing:
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 2
+    flags:
+      migStrategy: mixed
+      
+  time-sliced-4: |
+    version: v1
+    sharing:
+      timeSlicing:
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 4
+    flags:
+      migStrategy: mixed
+      
+  time-sliced-8: |
+    version: v1
+    sharing:
+      timeSlicing:
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 8
+    flags:
+      migStrategy: mixed

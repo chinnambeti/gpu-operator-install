@@ -1,0 +1,197 @@
+# Example CUDA workload for testing GPU availability
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cuda-vector-add
+  namespace: gpu-operator
+  labels:
+    app: cuda-test
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: cuda-vector-add
+      image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0-ubuntu22.04
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+
+---
+# GPU Information Pod - Shows GPU details
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nvidia-smi-check
+  namespace: gpu-operator
+  labels:
+    app: nvidia-smi
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: nvidia-smi
+      image: nvcr.io/nvidia/cuda:12.4.1-base-ubuntu22.04
+      command: ["nvidia-smi"]
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+
+---
+# MIG Test Workload - Requests specific MIG device
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mig-cuda-test
+  namespace: gpu-operator
+  labels:
+    app: mig-test
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: mig-cuda-test
+      image: nvcr.io/nvidia/cuda:12.4.1-base-ubuntu22.04
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "Testing MIG configuration..."
+          nvidia-smi -L
+          echo "---"
+          nvidia-smi --query-gpu=mig.mode.current --format=csv,noheader
+          echo "---"
+          nvidia-smi mig -lgi || echo "MIG not enabled or no GPU instances found"
+          echo "---"
+          echo "MIG Test Complete"
+      resources:
+        limits:
+          # Request MIG device (example: 3g.24gb profile)
+          # nvidia.com/mig-3g.24gb: 1
+          nvidia.com/gpu: 1
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+
+---
+# DCGM Diagnostics Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dcgm-diagnostics
+  namespace: gpu-operator
+  labels:
+    app: dcgm-diag
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: dcgm-diag
+      image: nvcr.io/nvidia/cloud-native/dcgm:3.3.6-1-ubuntu22.04
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "Running DCGM Diagnostics..."
+          dcgmi discovery -l
+          echo "---"
+          dcgmi diag -r 1
+          echo "---"
+          echo "DCGM Diagnostics Complete"
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+      securityContext:
+        privileged: true
+
+---
+# Multi-GPU Workload Example
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: multi-gpu-job
+  namespace: gpu-operator
+spec:
+  template:
+    metadata:
+      labels:
+        app: multi-gpu-job
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: multi-gpu-container
+          image: nvcr.io/nvidia/cuda:12.4.1-base-ubuntu22.04
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Multi-GPU Configuration Test"
+              nvidia-smi -L
+              echo "---"
+              echo "GPU Memory Information:"
+              nvidia-smi --query-gpu=index,name,memory.total,memory.free --format=csv
+              echo "---"
+              echo "Test Complete"
+          resources:
+            limits:
+              nvidia.com/gpu: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+  backoffLimit: 2
+
+---
+# PyTorch Training Example
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pytorch-gpu-test
+  namespace: gpu-operator
+spec:
+  template:
+    metadata:
+      labels:
+        app: pytorch-test
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: pytorch
+          image: nvcr.io/nvidia/pytorch:24.06-py3
+          command: ["python", "-c"]
+          args:
+            - |
+              import torch
+              print(f"PyTorch Version: {torch.__version__}")
+              print(f"CUDA Available: {torch.cuda.is_available()}")
+              if torch.cuda.is_available():
+                  print(f"CUDA Version: {torch.version.cuda}")
+                  print(f"GPU Count: {torch.cuda.device_count()}")
+                  for i in range(torch.cuda.device_count()):
+                      print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+                      props = torch.cuda.get_device_properties(i)
+                      print(f"  Memory: {props.total_memory / 1024**3:.2f} GB")
+                      print(f"  Multi-Processor Count: {props.multi_processor_count}")
+                  # Simple tensor operation
+                  x = torch.rand(1000, 1000, device='cuda')
+                  y = torch.rand(1000, 1000, device='cuda')
+                  z = torch.matmul(x, y)
+                  print(f"Matrix multiplication test passed!")
+              print("PyTorch GPU Test Complete!")
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: "8Gi"
+            requests:
+              memory: "4Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+  backoffLimit: 2
