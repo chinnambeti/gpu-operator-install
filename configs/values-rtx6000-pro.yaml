@@ -1,0 +1,148 @@
+# NVIDIA GPU Operator Helm Values
+# Configuration for RTX 6000 Pro with MIG support
+#
+# Usage:
+#   helm upgrade --install gpu-operator nvidia/gpu-operator \
+#     -n gpu-operator --create-namespace \
+#     -f values-rtx6000-pro.yaml
+
+# GPU Operator settings
+operator:
+  defaultRuntime: containerd
+  # Use Kubernetes Node labels for GPU detection
+  validator:
+    plugin:
+      env:
+        - name: WITH_WORKLOAD
+          value: "false"
+
+# NVIDIA Driver configuration
+driver:
+  enabled: true
+  # Use pre-installed driver on host if available
+  # Set to false if driver is already installed
+  usePrecompiled: false
+  # Driver version - use latest for RTX 6000 Ada
+  version: "550.90.07"
+  # License for NVIDIA drivers
+  licensingConfig:
+    configMapName: ""
+  
+# NVIDIA Container Toolkit
+toolkit:
+  enabled: true
+  # Container runtime environment
+  env:
+    - name: CONTAINERD_RUNTIME_CLASS
+      value: nvidia
+
+# NVIDIA Device Plugin
+devicePlugin:
+  enabled: true
+  # Configuration for GPU sharing
+  config:
+    name: "device-plugin-config"
+    default: "any"
+
+# MIG Manager - Essential for RTX 6000 Pro MIG configuration
+migManager:
+  enabled: true
+  # Default MIG configuration (can be overridden per node)
+  default: "all-disabled"
+  config:
+    name: mig-parted-config
+  # MIG strategy: single, mixed, or none
+  # - single: All GPUs must use the same MIG configuration
+  # - mixed: Different GPUs can have different MIG configurations  
+  # - none: MIG is not used
+
+mig:
+  strategy: mixed
+
+# DCGM (Data Center GPU Manager)
+dcgm:
+  enabled: true
+  # Enable metrics collection
+  args:
+    - "-f"
+    - "/etc/dcgm-exporter/dcp-metrics-included.csv"
+
+# DCGM Exporter for Prometheus metrics
+dcgmExporter:
+  enabled: true
+  # Expose GPU metrics
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    honorLabels: true
+    additionalLabels: {}
+
+# GPU Feature Discovery
+gfd:
+  enabled: true
+  # Discover and label GPU features on nodes
+  discoveryIntervalSeconds: 60
+
+# Node Feature Discovery
+nfd:
+  enabled: true
+  # Worker configuration
+  worker:
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+
+# Validator for health checks
+validator:
+  plugin:
+    enabled: true
+    # Validation workload settings
+    env:
+      - name: WITH_WORKLOAD
+        value: "false"
+
+# Pod Security settings
+podSecurityContext:
+  runAsNonRoot: false
+  
+# Node selectors and tolerations for GPU nodes
+nodeSelector: {}
+
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+
+# Resource limits for operator components
+resources:
+  limits:
+    cpu: 500m
+    memory: 350Mi
+  requests:
+    cpu: 200m
+    memory: 100Mi
+
+# Sandbox configuration for development/testing
+sandboxDevicePlugin:
+  enabled: false
+
+# vGPU configuration (disabled for RTX 6000 Pro - not a datacenter GPU)
+vgpuManager:
+  enabled: false
+
+# vGPU Device Manager
+vgpuDeviceManager:
+  enabled: false
+
+# NVIDIA VFIO Manager (for GPU passthrough)
+vfioManager:
+  enabled: false
+
+# Sandbox workloads
+sandboxWorkloads:
+  enabled: false
+
+# GDRCOPY driver
+gdrcopy:
+  enabled: false

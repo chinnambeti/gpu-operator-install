@@ -1,0 +1,121 @@
+# GPU Operator Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-operator
+  labels:
+    app.kubernetes.io/name: gpu-operator
+    nvidia.com/gpu.deploy.operator: "true"
+
+---
+# Service Account for GPU Operator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gpu-operator
+  namespace: gpu-operator
+  labels:
+    app.kubernetes.io/name: gpu-operator
+
+---
+# ClusterRole for GPU Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gpu-operator
+  labels:
+    app.kubernetes.io/name: gpu-operator
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets", "deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["nvidia.com"]
+    resources: ["*"]
+    verbs: ["*"]
+
+---
+# ClusterRoleBinding for GPU Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gpu-operator
+  labels:
+    app.kubernetes.io/name: gpu-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gpu-operator
+subjects:
+  - kind: ServiceAccount
+    name: gpu-operator
+    namespace: gpu-operator
+
+---
+# RuntimeClass for NVIDIA containers
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+handler: nvidia
+scheduling:
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+
+---
+# Priority Class for GPU workloads
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: gpu-workload-priority
+value: 100000
+globalDefault: false
+description: "Priority class for GPU-accelerated workloads"
+preemptionPolicy: PreemptLowerPriority
+
+---
+# Resource Quota for GPU namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: gpu-resource-quota
+  namespace: gpu-operator
+spec:
+  hard:
+    requests.nvidia.com/gpu: "8"
+    limits.nvidia.com/gpu: "8"
+    pods: "50"
+
+---
+# LimitRange for GPU workloads
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: gpu-limit-range
+  namespace: gpu-operator
+spec:
+  limits:
+    - type: Container
+      default:
+        nvidia.com/gpu: "0"
+        memory: "4Gi"
+        cpu: "2"
+      defaultRequest:
+        memory: "1Gi"
+        cpu: "500m"
+      max:
+        nvidia.com/gpu: "8"
+        memory: "256Gi"
+        cpu: "64"
