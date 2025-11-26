@@ -69,7 +69,15 @@ install_node_feature_discovery() {
     log_info "Installing Node Feature Discovery (NFD)..."
     
     # NFD is required for GPU detection
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/node-feature-discovery/v0.15.4/deployment/node-feature-discovery.yaml || {
+    # Note: NFD version is pinned to a specific release for security
+    # GPU Operator can also install NFD automatically (recommended)
+    local NFD_VERSION="v0.15.4"
+    local NFD_MANIFEST_URL="https://raw.githubusercontent.com/kubernetes-sigs/node-feature-discovery/${NFD_VERSION}/deployment/node-feature-discovery.yaml"
+    
+    log_warn "Downloading NFD manifest from external URL. Consider using GPU Operator's built-in NFD for production."
+    log_info "NFD Version: ${NFD_VERSION}"
+    
+    kubectl apply -f "${NFD_MANIFEST_URL}" || {
         log_warn "NFD might already be installed or will be installed by GPU Operator"
     }
 }

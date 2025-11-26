@@ -94,16 +94,16 @@ validate_gpu_operator() {
         ((WARNINGS++))
     fi
     
-    # Check all operator pods
+    # Check all operator pods using jsonpath for reliable parsing
     log_info "Checking GPU Operator pods..."
-    local pod_status
-    pod_status=$(kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null || echo "")
-    if [[ -n "${pod_status}" ]]; then
-        echo "${pod_status}" | while read -r line; do
-            local name status
-            name=$(echo "${line}" | awk '{print $1}')
-            status=$(echo "${line}" | awk '{print $3}')
-            if [[ "${status}" == "Running" || "${status}" == "Completed" ]]; then
+    local pod_json
+    pod_json=$(kubectl get pods -n "${NAMESPACE}" -o json 2>/dev/null || echo '{"items":[]}')
+    local pod_count
+    pod_count=$(echo "${pod_json}" | jq -r '.items | length')
+    
+    if [[ "${pod_count}" -gt 0 ]]; then
+        echo "${pod_json}" | jq -r '.items[] | "\(.metadata.name) \(.status.phase)"' | while read -r name status; do
+            if [[ "${status}" == "Running" || "${status}" == "Succeeded" ]]; then
                 check_pass "Pod ${name}: ${status}"
             else
                 check_warn "Pod ${name}: ${status}"
